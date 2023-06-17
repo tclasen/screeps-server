@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "screeps.fullname" . }}
+  labels:
+    {{- include "screeps.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "screeps.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "screeps.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "screeps.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: {{ .Chart.Name }}-init
+          image: ghcr.io/groundnuty/k8s-wait-for:no-root-v2.0
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "job"
+            - "{{ include "screeps.fullname" . }}-init-{{ .Release.Revision }}"
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["npx", "screeps", "start"]
+          workingDir: /opt/screeps
+          env:
+          - name: STEAM_KEY
+            valueFrom:
+              secretKeyRef:
+                name: steam-api-key
+                key: steam-api-key
+          ports:
+            - name: server
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /opt/screeps
+              name: screeps-data
+            - mountPath: /opt/screeps/.screepsrc
+              name: screeps-config
+              subPath: .screepsrc
+      volumes:
+        - name: screeps-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.claimName }}
+        - name: screeps-config
+          configMap:
+            name: {{ include "screeps.fullname" . }}
+            items:
+            - key: screepsrc.ini
+              path: .screepsrc
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
